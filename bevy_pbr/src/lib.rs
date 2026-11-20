@@ -92,6 +92,7 @@ pub mod prelude {
         parallax::ParallaxMappingMethod,
         pbr_material::StandardMaterial,
         ssao::ScreenSpaceAmbientOcclusionPlugin,
+        LightLayers,
     };
 }
 

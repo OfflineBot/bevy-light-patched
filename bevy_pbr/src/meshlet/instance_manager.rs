@@ -139,6 +139,7 @@ impl InstanceManager {
             None,
             None,
             None,
+            u32::MAX,
         );
 
         // Append instance data

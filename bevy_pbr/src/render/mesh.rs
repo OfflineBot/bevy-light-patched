@@ -1,5 +1,9 @@
 use crate::contact_shadows::ContactShadows;
-use crate::{resources::prepare_atmosphere_buffers, skin::skin_uniforms_from_world};
+use crate::{
+    render::layers::{mesh_mask, LightLayers},
+    resources::prepare_atmosphere_buffers,
+    skin::skin_uniforms_from_world,
+};
 use alloc::sync::Arc;
 use bevy_asset::uuid::Uuid;
 use bevy_asset::{embedded_asset, load_embedded_asset, AssetId, AssetIndex, AssetServer};
@@ -567,6 +571,8 @@ pub struct MeshUniform {
     pub morph_descriptor_index: u32,
     /// The index of the mesh metadata buffer.
     pub metadata_index: u32,
+    /// Packed [`LightLayers`] of the mesh.
+    pub light_layers: u32,
 }
 
 /// Information that has to be transferred from CPU to GPU in order to produce
@@ -637,7 +643,8 @@ pub struct MeshInputUniform {
     /// If the mesh has no morph targets, this is `u32::MAX`.
     pub morph_descriptor_index: u32,
     pub metadata_index: u32,
-    pub pad1: u32,
+    /// Packed [`LightLayers`] of the mesh.
+    pub light_layers: u32,
     pub pad2: u32,
     pub pad3: u32,
 }
@@ -693,6 +700,7 @@ impl MeshUniform {
         morph_descriptor_index: Option<MorphDescriptorIndex>,
         tag: Option<u32>,
         metadata_index: Option<u32>,
+        light_layers: u32,
     ) -> Self {
         let (local_from_world_transpose_a, local_from_world_transpose_b) =
             mesh_transforms.world_from_local.inverse_transpose_3x3();
@@ -725,6 +733,7 @@ impl MeshUniform {
                 None => u32::MAX,
             },
             metadata_index: metadata_index.unwrap_or(0),
+            light_layers,
         }
     }
 }
@@ -841,6 +850,8 @@ pub struct RenderMeshInstanceCpu {
     pub transforms: MeshTransforms,
     /// The set of render layers that this mesh belongs to.
     pub render_layers: Option<RenderLayers>,
+    /// Packed [`LightLayers`] of the mesh.
+    pub light_layers: u32,
 }
 
 /// CPU data that the render world needs to keep for each entity that contains a
@@ -1061,6 +1072,8 @@ pub struct RenderMeshInstanceGpuBuilder {
     pub previous_input_index: Option<NonMaxU32>,
     /// The render layers that this mesh instance belongs to.
     pub render_layers: Option<RenderLayers>,
+    /// Packed [`LightLayers`] of the mesh.
+    pub light_layers: u32,
     /// Various flags.
     pub mesh_flags: MeshFlags,
 }
@@ -1545,6 +1558,7 @@ impl RenderMeshInstanceGpuBuilder {
             tag: self.shared.tag,
             morph_descriptor_index,
             metadata_index,
+            light_layers: self.light_layers,
             ..Default::default()
         };
 
@@ -1829,6 +1843,7 @@ pub fn extract_meshes_for_cpu_building(
             Has<NoAutomaticBatching>,
             Option<&VisibilityRange>,
             Option<&RenderLayers>,
+            Option<&LightLayers>,
         )>,
     >,
 ) {
@@ -1849,6 +1864,7 @@ pub fn extract_meshes_for_cpu_building(
             no_automatic_batching,
             visibility_range,
             render_layers,
+            light_layers,
         )| {
             if !view_visibility.get() {
                 return;
@@ -1898,6 +1914,7 @@ pub fn extract_meshes_for_cpu_building(
                     },
                     shared: (&shared).into(),
                     render_layers: render_layers.cloned(),
+                    light_layers: mesh_mask(light_layers),
                 },
             ));
         },
@@ -1940,6 +1957,7 @@ type GpuMeshExtractionQuery = (
     ),
     Option<Read<VisibilityRange>>,
     Option<Read<RenderLayers>>,
+    Option<Read<LightLayers>>,
 );
 
 /// Extracts meshes from the main world to thread-local buffers in the render
@@ -1976,6 +1994,7 @@ pub fn extract_meshes_for_gpu_building(
                 Changed<VisibilityRange>,
                 Changed<SkinnedMesh>,
                 Changed<RenderLayers>,
+                Changed<LightLayers>,
             )>,
         >,
     >,
@@ -1993,6 +2012,7 @@ pub fn extract_meshes_for_gpu_building(
         mut removed_visibility_range_query,
         mut removed_skinned_mesh_query,
         mut removed_render_layers_query,
+        mut removed_light_layers_query,
     ): (
         Extract<RemovedComponents<PreviousGlobalTransform>>,
         Extract<RemovedComponents<Lightmap>>,
@@ -2007,6 +2027,7 @@ pub fn extract_meshes_for_gpu_building(
         Extract<RemovedComponents<VisibilityRange>>,
         Extract<RemovedComponents<SkinnedMesh>>,
         Extract<RemovedComponents<RenderLayers>>,
+        Extract<RemovedComponents<LightLayers>>,
     ),
     all_meshes_query: Extract<Query<GpuMeshExtractionQuery>>,
     mut removed_meshes_query: Extract<RemovedComponents<Mesh3d>>,
@@ -2047,7 +2068,8 @@ pub fn extract_meshes_for_gpu_building(
             .chain(removed_no_cpu_culling_query.read())
             .chain(removed_visibility_range_query.read())
             .chain(removed_skinned_mesh_query.read())
-            .chain(removed_render_layers_query.read()),
+            .chain(removed_render_layers_query.read())
+            .chain(removed_light_layers_query.read()),
     );
 
     // We have to skip the meshes in the potential reextraction set if we
@@ -2157,6 +2179,7 @@ fn extract_mesh_for_gpu_building(
         ),
         visibility_range,
         render_layers,
+        light_layers,
     ): <GpuMeshExtractionQuery as QueryData>::Item<'_, '_>,
     render_visibility_ranges: &RenderVisibilityRanges,
     render_mesh_instances: &RenderMeshInstancesGpu,
@@ -2225,6 +2248,7 @@ fn extract_mesh_for_gpu_building(
         mesh_flags,
         previous_input_index,
         render_layers: render_layers.cloned(),
+        light_layers: mesh_mask(light_layers),
     };
 
     // Push that data onto the queue.
@@ -2949,6 +2973,7 @@ impl GetBatchData for MeshPipeline {
                 morph_descriptor_index,
                 Some(mesh_instance.tag()),
                 metadata_index,
+                mesh_instance.light_layers,
             ),
             mesh_instance.should_batch().then_some((
                 MeshBatchSetCompareData {
@@ -3035,6 +3060,7 @@ impl GetFullBatchData for MeshPipeline {
             morph_descriptor_index,
             Some(mesh_instance.tag()),
             metadata_index,
+            mesh_instance.light_layers,
         ))
     }
 

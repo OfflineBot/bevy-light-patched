@@ -24,6 +24,8 @@ struct Mesh {
     morph_descriptor_index: u32,
     /// The index of the mesh metadata buffer.
     metadata_index: u32,
+    // Packed `LightLayers` of the mesh.
+    light_layers: u32,
 };
 
 @if(SKINNED)

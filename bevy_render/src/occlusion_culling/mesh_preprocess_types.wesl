@@ -26,7 +26,9 @@ struct MeshInput {
     ///
     /// If the mesh has no morph targets, this is `u32::MAX`.
     morph_descriptor_index: u32,
-    metadata_index: u32
+    metadata_index: u32,
+    // Packed `LightLayers` of the mesh.
+    light_layers: u32,
 }
 
 /// Per-mesh-instance data that we retain from the previous frame.

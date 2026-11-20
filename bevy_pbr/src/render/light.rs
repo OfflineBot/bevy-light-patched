@@ -1,4 +1,7 @@
-use crate::*;
+use crate::{
+    render::layers::{light_mask, LIGHT_LAYERS_SHIFT},
+    *,
+};
 use alloc::sync::Arc;
 use bevy_asset::UntypedAssetId;
 use bevy_camera::primitives::{
@@ -80,6 +83,8 @@ use tracing::{error, warn};
 #[require(PointAndSpotLightViewEntities)]
 pub struct ExtractedPointLight {
     pub color: LinearRgba,
+    /// Packed [`LightLayers`] of the light.
+    pub light_layers: u32,
     /// luminous intensity in lumens per steradian
     pub intensity: f32,
     pub range: f32,
@@ -111,6 +116,8 @@ pub struct ExtractedRectLight {
 #[require(DirectionalLightViewEntities)]
 pub struct ExtractedDirectionalLight {
     pub color: LinearRgba,
+    /// Packed [`LightLayers`] of the light.
+    pub light_layers: u32,
     pub illuminance: f32,
     pub transform: GlobalTransform,
     pub shadow_maps_enabled: bool,
@@ -345,6 +352,7 @@ pub fn extract_lights(
                 &ViewVisibility,
                 &CubemapFrusta,
                 Option<&RenderLayers>,
+                Option<&LightLayers>,
                 Option<&VolumetricLight>,
             ),
             Or<(
@@ -353,6 +361,7 @@ pub fn extract_lights(
                 Changed<GlobalTransform>,
                 Changed<ViewVisibility>,
                 Changed<RenderLayers>,
+                Changed<LightLayers>,
                 Changed<CubemapFrusta>,
                 Changed<VolumetricLight>,
             )>,
@@ -369,6 +378,7 @@ pub fn extract_lights(
                 &ViewVisibility,
                 &Frustum,
                 Option<&RenderLayers>,
+                Option<&LightLayers>,
                 Option<&VolumetricLight>,
             ),
             Or<(
@@ -377,6 +387,7 @@ pub fn extract_lights(
                 Changed<GlobalTransform>,
                 Changed<ViewVisibility>,
                 Changed<RenderLayers>,
+                Changed<LightLayers>,
                 Changed<Frustum>,
                 Changed<VolumetricLight>,
             )>,
@@ -395,6 +406,7 @@ pub fn extract_lights(
                 &GlobalTransform,
                 &ViewVisibility,
                 Option<&RenderLayers>,
+                Option<&LightLayers>,
                 Option<&VolumetricLight>,
                 Has<OcclusionCulling>,
                 Option<&SunDisk>,
@@ -410,6 +422,7 @@ pub fn extract_lights(
                     Changed<GlobalTransform>,
                     Changed<ViewVisibility>,
                     Changed<RenderLayers>,
+                    Changed<LightLayers>,
                     Changed<VolumetricLight>,
                     Changed<OcclusionCulling>,
                     Changed<SunDisk>,
@@ -476,6 +489,7 @@ pub fn extract_lights(
         view_visibility,
         frusta,
         maybe_render_layers,
+        maybe_light_layers,
         volumetric_light,
     ) in point_lights.iter()
     {
@@ -568,6 +582,7 @@ pub fn extract_lights(
         let mut entity_commands = commands.entity(render_entity);
         let extracted_point_light = ExtractedPointLight {
             color: point_light.color.into(),
+            light_layers: light_mask(maybe_light_layers),
             // NOTE: Map from luminous power in lumens to luminous intensity in lumens per steradian
             // for a point light. See https://google.github.io/filament/Filament.md.html#mjx-eqn-pointLightLuminousPower
             // for details.
@@ -608,6 +623,7 @@ pub fn extract_lights(
         view_visibility,
         frustum,
         maybe_render_layers,
+        maybe_light_layers,
         volumetric_light,
     ) in spot_lights.iter()
     {
@@ -704,6 +720,7 @@ pub fn extract_lights(
         let mut entity_commands = commands.entity(render_entity);
         let extracted_spot_light = ExtractedPointLight {
             color: spot_light.color.into(),
+            light_layers: light_mask(maybe_light_layers),
             // NOTE: Map from luminous power in lumens to luminous intensity in lumens per steradian
             // for a point light. See https://google.github.io/filament/Filament.md.html#mjx-eqn-pointLightLuminousPower
             // for details.
@@ -749,6 +766,7 @@ pub fn extract_lights(
         transform,
         view_visibility,
         maybe_render_layers,
+        maybe_light_layers,
         volumetric_light,
         occlusion_culling,
         sun_disk,
@@ -865,6 +883,7 @@ pub fn extract_lights(
 
         let extracted_directional_light = ExtractedDirectionalLight {
             color: directional_light.color.into(),
+            light_layers: light_mask(maybe_light_layers),
             illuminance: directional_light.illuminance,
             transform: *transform,
             volumetric: volumetric_light.is_some(),
@@ -1302,7 +1321,7 @@ pub fn prepare_lights(
     for (index, entity) in point_light_entities.iter().enumerate() {
         let light = point_lights.get(*entity).unwrap().2;
 
-        let mut flags = PointLightFlags::NONE;
+        let mut flags = PointLightFlags::from_bits_retain(light.light_layers << LIGHT_LAYERS_SHIFT);
 
         // Lights are sorted, shadow enabled lights are first
         if light.shadow_maps_enabled
@@ -1776,7 +1795,8 @@ pub fn prepare_lights(
 
             num_directional_lights_for_this_view += 1;
 
-            let mut flags = DirectionalLightFlags::NONE;
+            let mut flags =
+                DirectionalLightFlags::from_bits_retain(light.light_layers << LIGHT_LAYERS_SHIFT);
 
             // Lights are sorted, volumetric and shadow enabled lights are first
             if light.volumetric

@@ -118,6 +118,8 @@ struct PbrInput {
     anisotropy_B: vec3<f32>,
     is_orthographic: bool,
     flags: u32,
+    /// Packed `LightLayers` of the mesh.
+    light_layers: u32,
     /// Multiplier applied to all directional lights before cascade and contact shadows,
     /// use this for custom shadow maps. Defaults to 1.0.
     directional_shadow_factor: f32,
@@ -148,6 +150,8 @@ fn pbr_input_new() -> PbrInput {
     pbr_input.lightmap_light = vec3<f32>(0.0);
 
     pbr_input.flags = 0u;
+    // layer 0, like a mesh without `LightLayers`
+    pbr_input.light_layers = 1u;
     pbr_input.directional_shadow_factor = 1.0;
 
     return pbr_input;

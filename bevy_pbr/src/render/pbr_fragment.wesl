@@ -43,6 +43,12 @@ fn pbr_input_from_vertex_output(
 @else
     pbr_input.flags = mesh[in.instance_index].flags;
 
+    // meshlets don't take part in `LightLayers`, they receive every light
+@if(MESHLET_MESH_MATERIAL_PASS)
+    pbr_input.light_layers = 0xffffffffu;
+@else
+    pbr_input.light_layers = mesh[in.instance_index].light_layers;
+
     pbr_input.is_orthographic = view.clip_from_view[3].w == 1.0;
     pbr_input.V = pbr_functions::calculate_view(in.world_position, pbr_input.is_orthographic);
     pbr_input.frag_coord = in.position;

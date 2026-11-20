@@ -61,6 +61,13 @@ const DITHER_THRESHOLD_MAP: vec4<u32> = vec4(
     0x050d070f
 );
 
+/// Whether a light shades a mesh: they have to share a `LightLayers` layer.
+fn light_reaches(mesh_layers: u32, light_flags: u32) -> bool {
+    let light_layers = (light_flags >> mesh_view_types::LIGHT_LAYERS_SHIFT)
+        & mesh_view_types::LIGHT_LAYERS_MASK;
+    return (mesh_layers & light_layers) != 0u;
+}
+
 /// Processes a visibility range dither value and discards the fragment if
 /// needed.
 ///
@@ -464,6 +471,9 @@ fn apply_pbr_lighting(
             i < clusterable_object_index_ranges.first_spot_light_index_offset;
             i = i + 1u) {
         let light_id = clustering::get_clusterable_object_id(i);
+        if !light_reaches(in.light_layers, view_bindings::clustered_lights.data[light_id].flags) {
+            continue;
+        }
 
         // If we're lightmapped, disable diffuse contribution from the light if
         // requested, to avoid double-counting light.
@@ -518,6 +528,9 @@ fn apply_pbr_lighting(
             i < clusterable_object_index_ranges.first_rect_light_index_offset;
             i = i + 1u) {
         let light_id = clustering::get_clusterable_object_id(i);
+        if !light_reaches(in.light_layers, view_bindings::clustered_lights.data[light_id].flags) {
+            continue;
+        }
 
         // If we're lightmapped, disable diffuse contribution from the light if
         // requested, to avoid double-counting light.
@@ -586,6 +599,9 @@ fn apply_pbr_lighting(
         // check if this light should be skipped, which occurs if this light does not intersect with the view
         // note point and spot lights aren't skippable, as the relevant lights are filtered in `assign_lights_to_clusters`
         let light = &view_bindings::lights.directional_lights[i];
+        if !light_reaches(in.light_layers, (*light).flags) {
+            continue;
+        }
 
         // If we're lightmapped, disable diffuse contribution from the light if
         // requested, to avoid double-counting light.
